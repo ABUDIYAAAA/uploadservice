@@ -1,0 +1,24 @@
+version: v2
+
+clean: true
+
+managed:
+  enabled: true
+
+  override:
+    - file_option: go_package_prefix
+      value: devclub.com/upload-service/gen/proto
+  disable:
+    - file_option: go_package
+      module: buf.build/bufbuild/protovalidate
+
+plugins:
+  - remote: buf.build/protocolbuffers/go
+    out: gen/proto
+    opt:
+      - paths=source_relative
+
+  - remote: buf.build/grpc/go
+    out: gen/proto
+    opt:
+      - paths=source_relative

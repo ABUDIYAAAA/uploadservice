@@ -1,0 +1,69 @@
+syntax = "proto3";
+
+package upload.v1;
+
+service FileService {
+  rpc Upload(stream UploadRequest) returns (UploadResponse);
+
+  rpc Stat(StatRequest) returns (StatResponse);
+
+  rpc Download(DownloadRequest) returns (stream DownloadResponse);
+
+  rpc Delete(DeleteRequest) returns (DeleteResponse);
+}
+
+message UploadRequest {
+  oneof payload {
+    UploadStart start = 1;
+    UploadChunk chunk = 2;
+  }
+}
+
+message UploadStart {
+  string path = 1;
+  string content_type = 2;
+  uint64 size = 3;
+  bytes sha256 = 4;
+  string upload_id = 5;
+  uint64 offset = 6;
+}
+
+message UploadChunk {
+  bytes data = 1;
+}
+
+message UploadResponse {
+  string upload_id = 1;
+  string path = 2;
+  uint64 size = 3;
+  bytes sha256 = 4;
+}
+
+message StatRequest {
+  string path = 1;
+}
+
+message StatResponse {
+  string path = 1;
+  uint64 size = 2;
+  string content_type = 3;
+  bytes sha256 = 4;
+  int64 created_at_unix = 5;
+  int64 modified_at_unix = 6;
+}
+
+message DownloadRequest {
+  string path = 1;
+  uint64 offset = 2;
+  uint64 length = 3;
+}
+
+message DownloadResponse {
+  bytes data = 1;
+}
+
+message DeleteRequest {
+  string path = 1;
+}
+
+message DeleteResponse {}
