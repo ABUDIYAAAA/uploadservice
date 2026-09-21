@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"time"
@@ -21,6 +22,7 @@ type TestConfig struct {
 	ClientID           string
 	ClientSecret       string
 	SampleFilePath     string
+	LargeFilePath      string
 }
 
 // RunSuite runs a full end-to-end automated test against the Upload Service.
@@ -30,7 +32,7 @@ func RunSuite(ctx context.Context, cfg TestConfig) error {
 	log.Println("==========================================================")
 
 	// 1. Obtain token from Identity Service
-	log.Printf("[Step 1/7]  Fetching access token from Identity Service (%s)...\n", cfg.IdentityServiceURL)
+	log.Printf("[Step 1/7] 🔑 Fetching access token from Identity Service (%s)...\n", cfg.IdentityServiceURL)
 	idClient := NewIdentityClient(cfg.IdentityServiceURL)
 	token, err := idClient.FetchToken(ctx, cfg.ClientID, cfg.ClientSecret)
 	if err != nil {
@@ -39,7 +41,7 @@ func RunSuite(ctx context.Context, cfg TestConfig) error {
 	log.Printf("  ✔ Successfully acquired access token for client ID: %s\n", cfg.ClientID)
 
 	// 2. Test Unauthenticated / Invalid Token Rejection
-	log.Println("[Step 2/7]  Testing authentication interceptor rejection with invalid token...")
+	log.Println("[Step 2/7] 🛡️ Testing authentication interceptor rejection with invalid token...")
 	invalidClient, err := NewClient(cfg.UploadServiceURL, "invalid-bearer-token-xyz")
 	if err != nil {
 		return fmt.Errorf("failed to initialize invalid client: %w", err)
@@ -57,7 +59,7 @@ func RunSuite(ctx context.Context, cfg TestConfig) error {
 	}
 
 	// 3. Connect with Valid Token
-	log.Printf("[Step 3/7]  Connecting to Upload Service at %s with valid token...\n", cfg.UploadServiceURL)
+	log.Printf("[Step 3/7] 🔌 Connecting to Upload Service at %s with valid token...\n", cfg.UploadServiceURL)
 	client, err := NewClient(cfg.UploadServiceURL, token)
 	if err != nil {
 		return fmt.Errorf("failed to connect to upload service: %w", err)
@@ -70,12 +72,12 @@ func RunSuite(ctx context.Context, cfg TestConfig) error {
 	if cfg.SampleFilePath != "" {
 		if fileBytes, readErr := os.ReadFile(cfg.SampleFilePath); readErr == nil {
 			sampleData = fileBytes
-			log.Printf("[Step 4/7]  Loaded sample file from %s (%d bytes)\n", cfg.SampleFilePath, len(sampleData))
+			log.Printf("[Step 4/7] 📄 Loaded sample file from %s (%d bytes)\n", cfg.SampleFilePath, len(sampleData))
 		} else {
-			log.Printf("[Step 4/7]  Could not read %s, using fallback sample data (%v)\n", cfg.SampleFilePath, readErr)
+			log.Printf("[Step 4/7] 📄 Could not read %s, using fallback sample data (%v)\n", cfg.SampleFilePath, readErr)
 		}
 	} else {
-		log.Printf("[Step 4/7] Using in-memory sample file (%d bytes)\n", len(sampleData))
+		log.Printf("[Step 4/7] 📄 Using in-memory sample file (%d bytes)\n", len(sampleData))
 	}
 
 	samplePath := fmt.Sprintf("test-uploads/sample-%d.txt", time.Now().UnixNano())
@@ -108,7 +110,7 @@ func RunSuite(ctx context.Context, cfg TestConfig) error {
 	log.Println("  ✔ Full download verified: contents match sample file exactly")
 
 	// 5. Test Partial / Range Download
-	log.Println("[Step 5/7]  Testing byte-range partial download...")
+	log.Println("[Step 5/7] 🔍 Testing byte-range partial download...")
 	if len(sampleData) > 20 {
 		partialOffset := uint64(5)
 		partialLength := uint64(15)
@@ -125,40 +127,78 @@ func RunSuite(ctx context.Context, cfg TestConfig) error {
 		log.Println("  ✔ Skipped range download (sample data too short)")
 	}
 
-	// 6. Test Multi-Part / Multi-MB (> 5MB) Upload
-	log.Println("[Step 6/7]  Testing large multipart upload (6MB buffer across chunks)...")
+	// 6. Test Large File / Multipart Upload
 	largePath := fmt.Sprintf("test-uploads/large-file-%d.bin", time.Now().UnixNano())
-	largeData := make([]byte, 6*1024*1024)
-	_, _ = rand.Read(largeData)
-	largeHash := sha256.Sum256(largeData)
+	var (
+		largeReader io.Reader
+		largeSize   uint64
+		largeHash   []byte
+	)
+
+	if cfg.LargeFilePath != "" {
+		fileInfo, statErr := os.Stat(cfg.LargeFilePath)
+		if statErr != nil {
+			return fmt.Errorf("failed to stat large file at %s: %w", cfg.LargeFilePath, statErr)
+		}
+
+		file, openErr := os.Open(cfg.LargeFilePath)
+		if openErr != nil {
+			return fmt.Errorf("failed to open large file at %s: %w", cfg.LargeFilePath, openErr)
+		}
+		defer file.Close()
+
+		largeSize = uint64(fileInfo.Size())
+		log.Printf("[Step 6/7] 📦 Testing large file upload from disk: %s (%.2f MB)...\n", cfg.LargeFilePath, float64(largeSize)/(1024*1024))
+
+		// Pre-calculate SHA-256 for integrity verification
+		h := sha256.New()
+		if _, hashErr := io.Copy(h, file); hashErr != nil {
+			return fmt.Errorf("failed to calculate checksum for %s: %w", cfg.LargeFilePath, hashErr)
+		}
+		largeHash = h.Sum(nil)
+
+		// Rewind file to start for upload streaming
+		if _, seekErr := file.Seek(0, io.SeekStart); seekErr != nil {
+			return fmt.Errorf("failed to rewind file: %w", seekErr)
+		}
+		largeReader = file
+	} else {
+		log.Println("[Step 6/7] 📦 Testing generated large multipart upload (6MB buffer across chunks)...")
+		data := make([]byte, 6*1024*1024)
+		_, _ = rand.Read(data)
+		h := sha256.Sum256(data)
+		largeHash = h[:]
+		largeSize = uint64(len(data))
+		largeReader = bytes.NewReader(data)
+	}
 
 	largeResp, err := client.Upload(
 		ctx,
 		largePath,
 		"application/octet-stream",
-		bytes.NewReader(largeData),
-		uint64(len(largeData)),
-		largeHash[:],
+		largeReader,
+		largeSize,
+		largeHash,
 		"",
 		0,
 		512*1024, // 512KB gRPC chunk stream
 	)
 	if err != nil {
-		return fmt.Errorf("multipart upload failed: %w", err)
+		return fmt.Errorf("large multipart upload failed: %w", err)
 	}
-	log.Printf("  ✔ Multipart upload succeeded! UploadID: %s, Size: %d bytes\n", largeResp.UploadId, largeResp.Size)
+	log.Printf("  ✔ Large upload succeeded! UploadID: %s, Size: %d bytes (%.2f MB)\n", largeResp.UploadId, largeResp.Size, float64(largeResp.Size)/(1024*1024))
 
 	largeStat, err := client.Stat(ctx, largePath)
 	if err != nil {
 		return fmt.Errorf("stat large file failed: %w", err)
 	}
-	if largeStat.Size != uint64(len(largeData)) {
-		return fmt.Errorf("large file size mismatch: expected %d, got %d", len(largeData), largeStat.Size)
+	if largeStat.Size != largeSize {
+		return fmt.Errorf("large file size mismatch: expected %d, got %d", largeSize, largeStat.Size)
 	}
-	log.Println("  ✔ Large file metadata verified")
+	log.Printf("  ✔ Large file metadata verified on server (Size: %d bytes)\n", largeStat.Size)
 
 	// 7. Cleanup & Delete Test
-	log.Println("[Step 7/7]  Testing file deletion and post-delete 404 verification...")
+	log.Println("[Step 7/7] 🧹 Testing file deletion and post-delete 404 verification...")
 	if err := client.Delete(ctx, samplePath); err != nil {
 		return fmt.Errorf("delete sample file failed: %w", err)
 	}

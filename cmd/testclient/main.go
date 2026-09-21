@@ -18,6 +18,7 @@ func main() {
 	clientID := flag.String("client-id", getEnvOrDefault("TEST_ID", os.Getenv("SERVICE_ID")), "Calling service client ID")
 	clientSecret := flag.String("client-secret", getEnvOrDefault("TEST_SECRET", os.Getenv("SERVICE_SECRET")), "Calling service client secret")
 	sampleFile := flag.String("file", "test/sample_file.txt", "Sample file path to upload")
+	largeFile := flag.String("large-file", getEnvOrDefault("TEST_LARGE_FILE", ""), "Path to large file on disk for multipart upload testing")
 
 	flag.Parse()
 
@@ -31,6 +32,7 @@ func main() {
 		ClientID:           *clientID,
 		ClientSecret:       *clientSecret,
 		SampleFilePath:     *sampleFile,
+		LargeFilePath:      *largeFile,
 	}
 
 	ctx := context.Background()
