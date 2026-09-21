@@ -11,10 +11,26 @@ import (
 	"time"
 )
 
-// TokenResponse represents possible token response schemas from the identity service.
-type TokenResponse struct {
+// ServiceTokenData contains the token payload returned by Identity Service.
+type ServiceTokenData struct {
 	AccessToken string `json:"access_token"`
-	Token       string `json:"token"`
+	TokenType   string `json:"token_type"`
+	ExpiresIn   int    `json:"expires_in"`
+}
+
+// ServiceTokenResponse is the standard response from /api/v1/services/token.
+type ServiceTokenResponse struct {
+	Status      string           `json:"status"`
+	Message     string           `json:"message"`
+	Data        ServiceTokenData `json:"data"`
+	AccessToken string           `json:"access_token"` // for flat fallback
+	Token       string           `json:"token"`        // for flat fallback
+}
+
+// ServiceTokenRequest is the request body for obtaining an M2M token.
+type ServiceTokenRequest struct {
+	ClientID     string `json:"client_id"`
+	ClientSecret string `json:"client_secret"`
 }
 
 // IdentityClient handles fetching access tokens for service-to-service authentication.
@@ -35,19 +51,19 @@ func NewIdentityClient(baseURL string) *IdentityClient {
 
 // FetchToken obtains an access token for the specified service credentials.
 func (c *IdentityClient) FetchToken(ctx context.Context, clientID, clientSecret string) (string, error) {
+	reqBody := ServiceTokenRequest{
+		ClientID:     strings.TrimSpace(clientID),
+		ClientSecret: strings.TrimSpace(clientSecret),
+	}
+
+	payload, err := json.Marshal(reqBody)
+	if err != nil {
+		return "", fmt.Errorf("marshal token request: %w", err)
+	}
+
 	endpoints := []string{
 		c.baseURL + "/api/v1/services/token",
 		c.baseURL + "/services/token",
-	}
-
-	payload, err := json.Marshal(map[string]string{
-		"client_id":      clientID,
-		"client_secret":  clientSecret,
-		"service_id":     clientID,
-		"service_secret": clientSecret,
-	})
-	if err != nil {
-		return "", fmt.Errorf("marshal token request: %w", err)
 	}
 
 	var lastErr error
@@ -70,18 +86,21 @@ func (c *IdentityClient) FetchToken(ctx context.Context, clientID, clientSecret 
 			continue
 		}
 
-		var tokResp TokenResponse
+		var tokResp ServiceTokenResponse
 		if err := json.NewDecoder(resp.Body).Decode(&tokResp); err != nil {
 			lastErr = fmt.Errorf("decode token response from %s: %w", endpoint, err)
 			continue
 		}
 
-		token := tokResp.AccessToken
+		token := tokResp.Data.AccessToken
+		if token == "" {
+			token = tokResp.AccessToken
+		}
 		if token == "" {
 			token = tokResp.Token
 		}
 		if token == "" {
-			lastErr = fmt.Errorf("no token in response from %s", endpoint)
+			lastErr = fmt.Errorf("no token found in response from %s", endpoint)
 			continue
 		}
 

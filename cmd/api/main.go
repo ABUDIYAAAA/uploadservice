@@ -35,7 +35,7 @@ func main() {
 		log.Fatalf("Failed to initialize S3 client: %v", err)
 	}
 
-	identityClient := auth.NewClient(cfg.IdentityServiceURL)
+	identityClient := auth.NewClient(cfg.IdentityServiceURL, cfg.ServiceID, cfg.ServiceSecret)
 	authInterceptor := auth.NewInterceptor(identityClient)
 
 	grpcServer := grpc.NewServer(

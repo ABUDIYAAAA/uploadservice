@@ -6,9 +6,14 @@ type contextKey struct{}
 
 var identityKey = contextKey{}
 
-// Identity represents the authenticated service identity.
+// Identity represents the authenticated calling service identity.
 type Identity struct {
-	ServiceID string `json:"service_id"`
+	ID           string `json:"id"`
+	Name         string `json:"name"`
+	ClientID     string `json:"client_id"`
+	ServiceID    string `json:"service_id"`
+	IsActive     bool   `json:"is_active"`
+	TokenVersion int    `json:"token_version"`
 }
 
 // WithIdentity attaches the verified identity to the context.

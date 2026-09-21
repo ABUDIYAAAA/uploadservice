@@ -11,8 +11,10 @@ type Config struct {
 	// Server
 	Port string `env:"PORT,required"`
 
-	// Auth
+	// Auth / Identity Service
 	IdentityServiceURL string `env:"IDENTITY_SERVICE_URL" envDefault:"http://localhost:8080"`
+	ServiceID          string `env:"SERVICE_ID,required"`
+	ServiceSecret      string `env:"SERVICE_SECRET,required"`
 
 	// S3
 	AccessKeyID     string `env:"ACCESS_KEY_ID,required"`
