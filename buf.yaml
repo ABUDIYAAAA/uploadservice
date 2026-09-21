@@ -3,6 +3,7 @@ version: v2
 
 modules:
   - path: internal/proto
+    name: buf.build/devclub/uploadservice
 
 lint:
   use:
